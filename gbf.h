@@ -61,6 +61,7 @@ int buf_cursor_set(Buffer *b, size_t pos);
 int buf_cursor_move(Buffer *b, ptrdiff_t delta);
 int buf_ccat(Buffer *b, uint8_t c);
 int buf_cat(Buffer *b, const uint8_t *s, size_t n);
+int buf_insert(Buffer *b, size_t pos, const uint8_t *s, size_t n);
 int buf_delete(Buffer *b, ptrdiff_t delta);
 
 size_t buf_read(const Buffer *b, size_t pos, uint8_t *dst, size_t n);
