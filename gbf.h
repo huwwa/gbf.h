@@ -41,17 +41,15 @@ extern "C" {
 #define BUF_INIT_SIZE 1024
 #endif
 
-typedef uint8_t u8;
-
 typedef struct {
     size_t gap_start;
     size_t gap_end;
     size_t capacity;
-    u8 *data;
+    uint8_t *data;
 } Buffer;
 
 typedef struct {
-    const u8 *ptr;
+    const uint8_t *ptr;
     size_t len;
 } buf_slice;
 
@@ -64,11 +62,11 @@ size_t buf_cursor(const Buffer *b);
 
 int buf_cursor_set(Buffer *b, size_t pos);
 int buf_cursor_move(Buffer *b, ptrdiff_t delta);
-int buf_ccat(Buffer *b, u8 c);
-int buf_cat(Buffer *b, const u8 *s, size_t n);
+int buf_ccat(Buffer *b, uint8_t c);
+int buf_cat(Buffer *b, const uint8_t *s, size_t n);
 int buf_delete(Buffer *b, ptrdiff_t delta);
 
-size_t buf_read(const Buffer *b, size_t pos, u8 *dst, size_t n);
+size_t buf_read(const Buffer *b, size_t pos, uint8_t *dst, size_t n);
 
 /* The buffer uses a gap, so [pos, pos+n) may be split:
  *   out[0]  bytes before the gap
@@ -80,7 +78,7 @@ size_t buf_view(const Buffer *b, size_t pos, size_t n, buf_slice out[2]);
 /* Materialize the entire buffer into a NULL-terminated string.
  * Allocates; caller owns result.
  * O(n). Intended for debugging, I/O, and interp only. */
-u8 *buf_flatten(const Buffer *b);
+uint8_t *buf_flatten(const Buffer *b);
 
 #ifdef __cplusplus
 }
@@ -165,7 +163,7 @@ LIB_FUNC void buf_move_gap(Buffer *b, size_t pos)
 LIB_FUNC int buf_reserve(Buffer *b, size_t new_size)
 {
     size_t ncap;
-    u8 *p;
+    uint8_t *p;
 
     if (buf_gap_len(b) >= new_size)
         return 1;
@@ -209,7 +207,7 @@ int buf_cursor_move(Buffer *b, ptrdiff_t delta)
 }
 
 /* add a byte */
-int buf_ccat(Buffer *b, u8 c)
+int buf_ccat(Buffer *b, uint8_t c)
 {
     if (!b || !buf_reserve(b, 1))
         return 0;
@@ -219,7 +217,7 @@ int buf_ccat(Buffer *b, u8 c)
     return 1;
 }
 /* n == 0, treat as cstr */
-int buf_cat(Buffer *b, const u8 *s, size_t n)
+int buf_cat(Buffer *b, const uint8_t *s, size_t n)
 {
     if (!b || !s)
         return 0;
@@ -233,7 +231,7 @@ int buf_cat(Buffer *b, const u8 *s, size_t n)
     return 1;
 }
 
-int buf_insert(Buffer *b, size_t pos, const u8 *s, size_t n)
+int buf_insert(Buffer *b, size_t pos, const uint8_t *s, size_t n)
 {
     if (!b || !s)
         return 0;
@@ -261,7 +259,7 @@ int buf_delete(Buffer *b, ptrdiff_t delta)
 }
 /*---------------------------------------------------------------------------*/
 
-size_t buf_read(const Buffer *b, size_t pos, u8 *dst, size_t n)
+size_t buf_read(const Buffer *b, size_t pos, uint8_t *dst, size_t n)
 {
     size_t buflen;
     buf_assert(b);
@@ -316,9 +314,9 @@ size_t buf_view(const Buffer *b, size_t pos, size_t n, buf_slice out[2])
     return n;
 }
 
-u8 *buf_flatten(const Buffer *b)
+uint8_t *buf_flatten(const Buffer *b)
 {
-    u8 *buf;
+    uint8_t *buf;
     size_t h, t, buflen;
     if (!b)
         return NULL;
