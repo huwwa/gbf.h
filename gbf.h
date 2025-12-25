@@ -25,15 +25,11 @@ SOFTWARE.*/
 #ifdef __cplusplus
 extern "C" {
 #endif
-
 #include <stdlib.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
-
-#ifdef BUF_DEBUG
 #include <assert.h>
-#endif
 
 #define LIB_FUNC static
 
@@ -86,22 +82,6 @@ uint8_t *buf_flatten(const Buffer *b);
 
 #ifdef GBF_IMPLEMENTATION
 
-#ifdef BUF_DEBUG
-/* Invariants:
- *   0 <= gap_start <= gap_end <= capacity
- *   Text length = capacity - (gap_end - gap_start)
- * pos position is always at gap_start.
- * All operations are byte-based (no UTF-8 awareness yet). */
-static inline void buf_assert(const Buffer *b) {
-    assert(b);
-    assert(b->gap_start <= b->gap_end);
-    assert(b->gap_end <= b->capacity);
-    assert(b->data || b->capacity == 0);
-}
-#else
-#define buf_assert(b) ((void)0)
-#endif
-
 void buf_new(Buffer *b)
 {
     if (!b)
@@ -136,6 +116,17 @@ size_t buf_cursor(const Buffer *b)
     return b ? b->gap_start : 0;
 }
 /*---------------------------------------------------------------------------*/
+/* Invariants:
+ *   0 <= gap_start <= gap_end <= capacity
+ *   Text length = capacity - (gap_end - gap_start)
+ * pos position is always at gap_start.
+ * All operations are byte-based (no UTF-8 awareness yet). */
+static inline void buf_assert(const Buffer *b) {
+    assert(b);
+    assert(b->gap_start <= b->gap_end);
+    assert(b->gap_end <= b->capacity);
+    assert(b->data || b->capacity == 0);
+}
 
 LIB_FUNC inline size_t buf_gap_len(const Buffer *b) {
     return b->gap_end - b->gap_start;
