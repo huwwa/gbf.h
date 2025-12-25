@@ -47,6 +47,9 @@ typedef struct {
     size_t len;
 } buf_slice;
 
+#define SLICE_FMT "%.*s"
+#define SLICE_ARG(s) (int) (s).len, (s).ptr
+
 void buf_new(Buffer *b);
 void buf_reset(Buffer *b);
 void buf_free(Buffer *b);
