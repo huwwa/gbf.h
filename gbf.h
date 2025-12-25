@@ -31,8 +31,6 @@ extern "C" {
 #include <string.h>
 #include <assert.h>
 
-#define LIB_FUNC static
-
 #ifndef BUF_INIT_SIZE
 #define BUF_INIT_SIZE 1024
 #endif
@@ -105,34 +103,26 @@ void buf_free(Buffer *b)
     b->data = NULL;
     b->capacity = 0;
 }
-
-size_t buf_len(const Buffer *b)
-{
-    return b ? b->capacity - (b->gap_end - b->gap_start) : 0;
-}
-
-size_t buf_cursor(const Buffer *b)
-{
-    return b ? b->gap_start : 0;
-}
 /*---------------------------------------------------------------------------*/
 /* Invariants:
  *   0 <= gap_start <= gap_end <= capacity
  *   Text length = capacity - (gap_end - gap_start)
- * pos position is always at gap_start.
+ * Cursor is always at gap_start.
  * All operations are byte-based (no UTF-8 awareness yet). */
-static inline void buf_assert(const Buffer *b) {
+static void buf_assert(const Buffer *b);
+static void buf_move_gap(Buffer *b, size_t pos);
+static int buf_reserve(Buffer *b, size_t new_size);
+static size_t buf_gap_len(const Buffer *b);
+
+static void buf_assert(const Buffer *b)
+{
     assert(b);
     assert(b->gap_start <= b->gap_end);
     assert(b->gap_end <= b->capacity);
     assert(b->data || b->capacity == 0);
 }
 
-LIB_FUNC inline size_t buf_gap_len(const Buffer *b) {
-    return b->gap_end - b->gap_start;
-}
-
-LIB_FUNC void buf_move_gap(Buffer *b, size_t pos)
+static void buf_move_gap(Buffer *b, size_t pos)
 {
     size_t n;
     if (pos == b->gap_start)
@@ -151,7 +141,7 @@ LIB_FUNC void buf_move_gap(Buffer *b, size_t pos)
     }
 }
 
-LIB_FUNC int buf_reserve(Buffer *b, size_t new_size)
+static int buf_reserve(Buffer *b, size_t new_size)
 {
     size_t ncap;
     uint8_t *p;
@@ -176,7 +166,21 @@ LIB_FUNC int buf_reserve(Buffer *b, size_t new_size)
 
     return 1;
 }
+
+static size_t buf_gap_len(const Buffer *b)
+{
+    return b->gap_end - b->gap_start;
+}
 /*---------------------------------------------------------------------------*/
+size_t buf_len(const Buffer *b)
+{
+    return b ? b->capacity - (b->gap_end - b->gap_start) : 0;
+}
+
+size_t buf_cursor(const Buffer *b)
+{
+    return b ? b->gap_start : 0;
+}
 
 int buf_cursor_set(Buffer *b, size_t pos)
 {
