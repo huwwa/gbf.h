@@ -19,6 +19,7 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.*/
+
 #ifndef GBF_H_
 #define GBF_H_
 
@@ -30,6 +31,10 @@ extern "C" {
 #include <stddef.h>
 #include <string.h>
 #include <assert.h>
+
+#ifdef USE_EXTENTION
+#include <ctype.h>
+#endif
 
 #ifndef BUF_INIT_SIZE
 #define BUF_INIT_SIZE 1024
@@ -77,6 +82,19 @@ size_t buf_view(const Buffer *b, size_t pos, size_t n, buf_slice out[2]);
  * Allocates; caller owns result.
  * O(n). Intended for debugging, I/O, and interp only. */
 uint8_t *buf_flatten(const Buffer *b);
+
+#ifdef USE_EXTENTION
+int buf_forward_char(Buffer *b);
+int buf_backward_char(Buffer *b);
+int buf_forward_word(Buffer *b);
+int buf_backward_word(Buffer *b);
+int buf_home(Buffer *b);
+int buf_end(Buffer *b);
+int buf_kill_word(Buffer *b);
+int buf_kill_line(Buffer *b);
+int buf_line_discard(Buffer *b);
+int buf_word_rubout(Buffer *b);
+#endif /* USE_EXTENTION */
 
 #ifdef __cplusplus
 }
@@ -208,9 +226,9 @@ int buf_cursor_move(Buffer *b, ptrdiff_t delta)
 /* add a byte */
 int buf_ccat(Buffer *b, uint8_t c)
 {
+    buf_assert(b);
     if (!b || !buf_reserve(b, 1))
         return 0;
-    buf_assert(b);
     b->data[b->gap_start++] = c;
     buf_assert(b);
     return 1;
@@ -218,9 +236,9 @@ int buf_ccat(Buffer *b, uint8_t c)
 /* n == 0, treat as cstr */
 int buf_cat(Buffer *b, const uint8_t *s, size_t n)
 {
+    buf_assert(b);
     if (!b || !s)
         return 0;
-    buf_assert(b);
     n = n ? n : strlen((const char *)s);
     if (!buf_reserve(b, n))
         return 0;
@@ -232,6 +250,7 @@ int buf_cat(Buffer *b, const uint8_t *s, size_t n)
 
 int buf_insert(Buffer *b, size_t pos, const uint8_t *s, size_t n)
 {
+    buf_assert(b);
     if (!b || !s)
         return 0;
     if (!buf_cursor_set(b, pos))
@@ -241,9 +260,9 @@ int buf_insert(Buffer *b, size_t pos, const uint8_t *s, size_t n)
 
 int buf_delete(Buffer *b, ptrdiff_t delta)
 {
-    if (!b)
-        return 0;
     buf_assert(b);
+    if (!b || ! delta)
+        return 0;
     if (delta > 0) {
         if ((size_t)delta > buf_len(b) - buf_cursor(b))
             return 0;
@@ -261,6 +280,7 @@ int buf_delete(Buffer *b, ptrdiff_t delta)
 size_t buf_read(const Buffer *b, size_t pos, uint8_t *dst, size_t n)
 {
     size_t buflen;
+
     buf_assert(b);
     buflen = buf_len(b);
     if (!b || !dst || !n || pos >= buflen)
@@ -283,32 +303,33 @@ size_t buf_read(const Buffer *b, size_t pos, uint8_t *dst, size_t n)
     return n;
 }
 
+/* n == 0 add [pos, buflen]  */
 size_t buf_view(const Buffer *b, size_t pos, size_t n, buf_slice out[2])
 {
     size_t buflen;
+
     buf_assert(b);
     buflen = buf_len(b);
-    if (!b || !out || !n || pos >= buflen)
+    if (!b || !out || pos >= buflen)
         return 0;
 
-    if (pos + n > buflen)
+    if (pos + n > buflen || !n)
         n = buflen - pos;
 
+
     memset(out, 0, sizeof(*out)*2);
-    if (pos < b->gap_start) {
-        if (pos + n <= b->gap_start) {
-            out->len = n;
-            out->ptr = b->data + pos;
-        } else {
-            size_t n1 = b->gap_start - pos;
-            out->len = n1;
-            out->ptr = b->data + pos;
-            out[1].len = n - n1;
-            out[1].ptr = b->data + b->gap_end;
-        }
-    } else {
+    if (pos >= b->gap_start) {
         out->len = n;
         out->ptr = b->data + pos + buf_gap_len(b);
+    } else {
+        out->ptr = b->data + pos;
+        if (pos + n <= b->gap_start)
+            out->len = n;
+        else {
+            out->len = b->gap_start - pos;
+            out[1].len = n - out->len;
+            out[1].ptr = b->data + b->gap_end;
+        }
     }
     return n;
 }
@@ -317,10 +338,11 @@ uint8_t *buf_flatten(const Buffer *b)
 {
     uint8_t *buf;
     size_t h, t, buflen;
+
+    buf_assert(b);
     if (!b)
         return NULL;
 
-    buf_assert(b);
 #ifdef GAP_DEBUG
     buflen = b->capacity;
 #else
@@ -345,6 +367,128 @@ uint8_t *buf_flatten(const Buffer *b)
     buf_assert(b);
     return buf;
 }
+
+#ifdef USE_EXTENTION
+int buf_forward_char(Buffer *b)
+{
+    buf_assert(b);
+    return buf_cursor_move(b, 1);
+}
+
+int buf_backward_char(Buffer *b)
+{
+    buf_assert(b);
+    return buf_cursor_move(b, -1);
+}
+
+int buf_forward_word(Buffer *b)
+{
+    buf_slice s[2];
+
+    buf_assert(b);
+    if (!b || !buf_view(b, buf_cursor(b), 0, s) || s[1].len)
+        return 0;
+
+    ptrdiff_t d;
+    for (d = 0; d < (ptrdiff_t)s->len && !isalnum(s->ptr[d]); ++d);
+    for (;d < (ptrdiff_t)s->len && isalnum(s->ptr[d]); ++d);
+    return buf_cursor_move(b, d);
+}
+
+int buf_backward_word(Buffer *b)
+{
+    buf_slice s[2];
+
+    buf_assert(b);
+    if (!b || !buf_view(b, 0, buf_cursor(b), s) || s[1].len)
+        return 0;
+
+    ptrdiff_t d;
+    for (d = s->len -1; d >= 0 && !isalnum(s->ptr[d]); --d);
+    for (;d >= 0 && isalnum(s->ptr[d]); --d);
+    return buf_cursor_move(b, d - (s->len -1));
+}
+
+int buf_home(Buffer *b)
+{
+    buf_slice s[2];
+
+    buf_assert(b);
+    if (!b || !buf_view(b, 0, buf_cursor(b), s) || s[1].len)
+        return 0;
+
+    ptrdiff_t d;
+    for (d = s->len -1; d >= 0 && s->ptr[d] != '\n'; --d);
+    return buf_cursor_move(b, d - (s->len -1));
+}
+
+int buf_end(Buffer *b)
+{
+    buf_slice s[2];
+
+    buf_assert(b);
+    if (!b || !buf_view(b, buf_cursor(b), 0, s) || s[1].len)
+        return 0;
+
+    ptrdiff_t d;
+    for (d = 0; d < (ptrdiff_t)s->len && s->ptr[d] != '\n'; ++d);
+    return buf_cursor_move(b, d);
+}
+
+int buf_kill_word(Buffer *b)
+{
+    buf_slice s[2];
+
+    buf_assert(b);
+    if (!b || !buf_view(b, buf_cursor(b), 0, s) || s[1].len)
+        return 0;
+
+    ptrdiff_t d;
+    for ( d = 0; d < (ptrdiff_t)s->len && !isalnum(s->ptr[d]); ++d);
+    for (;d < (ptrdiff_t)s->len && isalnum(s->ptr[d]); ++d);
+    return buf_delete(b, d);
+}
+
+int buf_kill_line(Buffer *b)
+{
+    buf_slice s[2];
+
+    buf_assert(b);
+    if (!b || !buf_view(b, buf_cursor(b), 0, s) || s[1].len)
+        return 0;
+
+    ptrdiff_t d;
+    for (d = 0; d < (ptrdiff_t)s->len && s->ptr[d] != '\n'; ++d);
+    return buf_delete(b, d);
+}
+
+int buf_line_discard(Buffer *b)
+{
+    buf_slice s[2];
+
+    buf_assert(b);
+    if (!b || !buf_view(b, 0, buf_cursor(b), s) || s[1].len)
+        return 0;
+
+    ptrdiff_t d;
+    for (d = s->len -1; d >= 0 && s->ptr[d] != '\n'; --d);
+    return buf_delete(b, d - (s->len -1));
+}
+
+int buf_word_rubout(Buffer *b)
+{
+    buf_slice s[2];
+
+    buf_assert(b);
+    if (!b || !buf_view(b, 0, buf_cursor(b), s) || s[1].len)
+        return 0;
+
+    ptrdiff_t d;
+    for (d = s->len -1; d >= 0 && isspace(s->ptr[d]); --d);
+    for (;d >= 0 && !isspace(s->ptr[d]); --d);
+    return buf_delete(b, d - (s->len -1));
+}
+#endif /* USE_EXTENTION */
 
 #endif /* GBF_IMPLEMENTATION */
 #endif /* GBF_H_ */
