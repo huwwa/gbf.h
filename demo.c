@@ -256,14 +256,21 @@ int edit(void)
                                 CASE('D', buf_backward_word(gbf)); /* ctlr-left */
                             }
                         }
-                    } else if (seq[2] == '~' && seq[1] == '3') {
-                        buf_delete(gbf, 1);
+                    } else if (seq[2] == '~') {
+                        switch (seq[1] ) {
+                            CASE('1', buf_home(gbf));
+                            CASE('3', buf_delete(gbf, 1));
+                            CASE('4', buf_end(gbf));
+                        }
                     }
                 } else {
-                    /* arrow keys */
                     switch(seq[1]) {
                         CASE('C', buf_forward_char(gbf));
                         CASE('D', buf_backward_char(gbf));
+
+                        CASE('P', buf_delete(gbf, 1));
+                        CASE('H', buf_home(gbf));
+                        CASE('F', buf_end(gbf));
                     }
                 }
             }
@@ -327,6 +334,7 @@ void usage(void)
         "  Ctrl-B         backward character\n"
         "  Ctrl-F         forward character\n"
         "  Left / Right   backward / forward character\n"
+        "  Home / End     beginning / end of line\n\n"
         "Word movement:\n"
         "  Meta-B         backward word\n"
         "  Meta-F         forward word\n"
