@@ -54,6 +54,8 @@ typedef struct {
 
 #define SLICE_FMT "%.*s"
 #define SLICE_ARG(s) (int) (s).len, (s).ptr
+#define SLICES_FMT SLICE_FMT SLICE_FMT
+#define SLICES_ARG(sp) SLICE_ARG((sp[0])), SLICE_ARG((sp[1]))
 
 void buf_new(Buffer *b);
 void buf_reset(Buffer *b);

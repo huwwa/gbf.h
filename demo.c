@@ -41,13 +41,37 @@ typedef struct {
     const char *prompt;
     char *dst;
     size_t dst_sz;
-
     Buffer gbf;
 } State;
 
 /* globals */
 static State state;
 static struct termios term;
+
+const char help[] =
+    "Editing motions:\n\n"
+    "Cursor movement:\n"
+    "  Ctrl-A         beginning of line\n"
+    "  Ctrl-E         end of line\n"
+    "  Ctrl-B         backward character\n"
+    "  Ctrl-F         forward character\n"
+    "  Left / Right   backward / forward character\n"
+    "  Home / End     beginning / end of line\n\n"
+    "Word movement:\n"
+    "  Meta-B         backward word\n"
+    "  Meta-F         forward word\n"
+    "  Ctrl-Left      backward word\n"
+    "  Ctrl-Right     forward word\n\n"
+    "Deletion:\n"
+    "  Backspace      delete character before cursor\n"
+    "  Del            delete character at cursor\n"
+    "  Ctrl-D         delete character at cursor\n"
+    "  Meta-D         delete word forward\n"
+    "  Ctrl-W         delete word backward\n"
+    "  Ctrl-K         delete to end of line\n"
+    "  Ctrl-U         delete to start of line\n\n"
+    "Other:\n"
+    "  Ctrl-L         clear screen\n";
 
 /* ------------------------------------------------------------------------- */
 /* CString handling */
@@ -88,6 +112,41 @@ void cstr_cat(CString *cstr, const char *str, int len)
     cstr->size = size;
 }
 
+void cstr_vprintf(CString *cstr, const char *fmt, va_list ap)
+{
+    char buf0[1024];
+    char *buf;
+    int n, size;
+    va_list ap2;
+
+#ifndef va_copy
+#define va_copy(s,d)  __va_copy(s,d)
+#endif
+
+    va_copy(ap2, ap);
+    size = sizeof(buf0);
+    buf = buf0;
+    n = vsnprintf(buf, size, fmt, ap2);
+    va_end(ap2);
+    if (n >= size) {
+        size = n + 1;
+        buf = malloc(size);
+        vsnprintf(buf, size, fmt, ap);
+    }
+    cstr_cat(cstr, buf, n);
+    if (buf != buf0)
+        free(buf);
+}
+
+void cstr_printf(CString *cstr, const char *fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    cstr_vprintf(cstr, fmt, ap);
+    va_end(ap);
+}
+
 void cstr_new(CString *cstr)
 {
     memset(cstr, 0, sizeof(CString));
@@ -101,14 +160,14 @@ void cstr_free(CString *cstr)
 /* terminal handling */
 static void rawmode_end(void)
 {
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &term);
+    tcsetattr(0, TCSAFLUSH, &term);
 }
 
 int rawmode_start(void)
 {
     struct termios raw;
 
-    if (tcgetattr(STDIN_FILENO, &term) < 0)
+    if (tcgetattr(0, &term) < 0)
         return -1;
 
     raw = term;
@@ -117,7 +176,7 @@ int rawmode_start(void)
     raw.c_cc[VTIME] = 0;
 
     atexit(rawmode_end);
-    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) < 0)
+    if (tcsetattr(0, TCSAFLUSH, &raw) < 0)
         return -1;
     return 1;
 }
@@ -125,61 +184,55 @@ int rawmode_start(void)
 /* clear the screen and move to top left */
 int clear_screen(void)
 {
-    return write(STDOUT_FILENO, "\x1b[2J\x1b[H", 7);
+    return write(1, "\x1b[2J\x1b[H", 7);
 }
 
 /* TODO: handle resizing and when length is larger than terminal columns.*/
 int redraw(void)
 {
-    size_t plen;
-    char seq[32];
     CString cstr;
     Buffer *gbf;
 
     gbf = &state.gbf;
-    plen = strlen(state.prompt);
     cstr_new(&cstr);
     /* gap visualization is avaiable only when compiled with this flag
      * otherwise acts as readline */
 #ifdef GAP_DEBUG
     uint8_t *p = buf_flatten(gbf);
     if (p) {
-        cstr_cat(&cstr,
+        cstr_printf(&cstr,
                 "\x1b[2J\x1b[H" /* move to top the left and clear the entire screen */
-                "\x1b[7m",      /* reverse video and go to the start */
-                -1);  /* -1 discards '\0' */
-
-        cstr_cat(&cstr, state.prompt, plen);
-        cstr_cat(&cstr, (const char *)p, -1);
-        /* revert video back and go down one line*/
-        cstr_cat(&cstr, "\x1b[m\n", -1);
+                "\x1b[7m"       /* reverse video */
+                "%s%s"          /* add prompt and flattened buffer */
+                "\x1b[m\n",     /* revert video back */
+                state.prompt, p);
         free(p);
     }
 #endif
 
     /* add prompt */
-    cstr_ccat(&cstr, '\r');
-    cstr_cat(&cstr, state.prompt, plen);
+    cstr_printf(&cstr, "\r%s", state.prompt);
 
     /* add buffer content */
     buf_slice bs[2];
     if (buf_view(gbf, 0, buf_len(gbf), bs)) {
-        cstr_cat(&cstr, (const char *)bs->ptr, bs->len);
         if (bs[1].len)
-            cstr_cat(&cstr, (const char *)bs[1].ptr, bs[1].len);
+            cstr_printf(&cstr, SLICES_FMT, SLICES_ARG(bs));
+        else
+            cstr_printf(&cstr, SLICE_FMT, SLICE_ARG(bs[0]));
     }
-    /* clear anythig after the cursor */
-    cstr_cat(&cstr, "\x1b[0K", -1);
-    /* move cursor to it's position */
-    if (snprintf(seq, sizeof(seq) ,"\r\x1b[%zuC", plen + buf_cursor(gbf)) < 0)
-        goto error;
-    cstr_cat(&cstr, seq, strlen(seq));
 
-    if (write(STDOUT_FILENO, cstr.data, cstr.size) < 0)
+    cstr_printf(&cstr,
+            "\x1b[0K"      /* clear anythig after the cursor */
+            "\r\x1b[%zuC", /* move cursor to it's position */
+            strlen(state.prompt) + buf_cursor(gbf));
+
+    if (write(1, cstr.data, cstr.size) < 0)
         goto error;
 
     cstr_free(&cstr);
     return 1;
+
 error:
     cstr_free(&cstr);
     return 0;
@@ -196,8 +249,8 @@ int store(void)
     if (!buf_view(gbf, 0, buf_len(gbf), bs))
         return 0;
     if (bs[1].len)
-        r = snprintf(state.dst, state.dst_sz, SLICE_FMT SLICE_FMT,
-                SLICE_ARG(bs[0]), SLICE_ARG(bs[1]));
+        r = snprintf(state.dst, state.dst_sz, SLICES_FMT,
+                SLICES_ARG(bs));
     else
         r = snprintf(state.dst, state.dst_sz, SLICE_FMT,
                 SLICE_ARG(bs[0]));
@@ -211,7 +264,7 @@ int edit(void)
 
     gbf = &state.gbf;
     while (1) {
-        if (read(STDIN_FILENO, &c, 1) < 0)
+        if (read(0, &c, 1) < 0)
             return -1;
         switch(c) {
 #define CASE(x, fn) case x: fn; break;
@@ -225,15 +278,15 @@ int edit(void)
             CASE(BACKSPACE, buf_delete(gbf, -1));
             CASE(CTRL_L, clear_screen());
             case CTRL_D:
-                if (buf_len(gbf)) {
-                    buf_delete(gbf, 1);
-                    break;
-                }
-                return -1;
+            if (buf_len(gbf)) {
+                buf_delete(gbf, 1);
+                break;
+            }
+            return -1;
             case ENTER:
-                goto end;
+            goto end;
             case ESC:
-            if (read(STDIN_FILENO, seq, 1) < 0)
+            if (read(0, seq, 1) < 0)
                 return -1;
             if (*seq >= 'a' && *seq <= 'z') {
                 switch (*seq) {
@@ -295,7 +348,7 @@ int repl_read(const char *prompt, char *dst, const size_t dst_sz)
 
     if (rawmode_start() < 0)
         return -1;
-    if (write(STDOUT_FILENO, prompt, strlen(prompt)) < 0)
+    if (write(1, prompt, strlen(prompt)) < 0)
         return -1;
 
     state.prompt = prompt;
@@ -326,35 +379,12 @@ void repl(void)
 
 void usage(void)
 {
-    fprintf(stderr,
-        "Editing motions:\n\n"
-        "Cursor movement:\n"
-        "  Ctrl-A         beginning of line\n"
-        "  Ctrl-E         end of line\n"
-        "  Ctrl-B         backward character\n"
-        "  Ctrl-F         forward character\n"
-        "  Left / Right   backward / forward character\n"
-        "  Home / End     beginning / end of line\n\n"
-        "Word movement:\n"
-        "  Meta-B         backward word\n"
-        "  Meta-F         forward word\n"
-        "  Ctrl-Left      backward word\n"
-        "  Ctrl-Right     forward word\n\n"
-        "Deletion:\n"
-        "  Backspace      delete character before cursor\n"
-        "  Del            delete character at cursor\n"
-        "  Ctrl-D         delete character at cursor\n"
-        "  Meta-D         delete word forward\n"
-        "  Ctrl-W         delete word backward\n"
-        "  Ctrl-K         delete to end of line\n"
-        "  Ctrl-U         delete to start of line\n\n"
-        "Other:\n"
-        "  Ctrl-L         clear screen\n");
+    fprintf(stderr, help);
 }
 
 int main(int argc, char **argv)
 {
-    if (!isatty(STDIN_FILENO)) {
+    if (!isatty(0)) {
         fprintf(stderr, "run this demo in the terminal!\n");
         return 1;
     }
